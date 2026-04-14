@@ -17,8 +17,8 @@ app.use(express.json());
 // CONNECT DB
 // ==========================
 mongoose.connect(process.env.MONGO_URI)
-.then(() => console.log("MongoDB Connected ✅"))
-.catch(err => console.log(err));
+  .then(() => console.log("MongoDB Connected ✅"))
+  .catch(err => console.log("DB Error ❌", err));
 
 // ==========================
 // MODELS
@@ -26,8 +26,8 @@ mongoose.connect(process.env.MONGO_URI)
 
 // USER
 const UserSchema = new mongoose.Schema({
-  email: String,
-  password: String
+  email: { type: String, required: true, unique: true },
+  password: { type: String, required: true }
 });
 const User = mongoose.model("User", UserSchema);
 
@@ -77,33 +77,42 @@ function verifyToken(req, res, next) {
 
 // SIGNUP
 app.post("/api/signup", async (req, res) => {
-  const { email, password } = req.body;
+  try {
+    const { email, password } = req.body;
 
-  const hashed = await bcrypt.hash(password, 10);
-  await User.create({ email, password: hashed });
+    const existing = await User.findOne({ email });
+    if (existing) return res.status(400).send("User already exists ❌");
 
-  res.send("User Created ✅");
+    const hashed = await bcrypt.hash(password, 10);
+    await User.create({ email, password: hashed });
+
+    res.send("User Created ✅");
+  } catch (err) {
+    res.status(500).send("Signup error ❌");
+  }
 });
 
 // LOGIN
 app.post("/api/login", async (req, res) => {
-  const { email, password } = req.body;
+  try {
+    const { email, password } = req.body;
 
-  const user = await User.findOne({ email });
+    const user = await User.findOne({ email });
+    if (!user) return res.status(400).send("User not found ❌");
 
-  if (!user) return res.status(400).send("User not found ❌");
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) return res.status(400).send("Wrong password ❌");
 
-  const isMatch = await bcrypt.compare(password, user.password);
+    const token = jwt.sign(
+      { id: user._id },
+      process.env.JWT_SECRET,
+      { expiresIn: "7d" }
+    );
 
-  if (!isMatch) return res.status(400).send("Wrong password ❌");
-
-  // ✅ TOKEN HERE ONLY
-  const token = jwt.sign(
-    { id: user._id },
-    process.env.JWT_SECRET
-  );
-
-  res.json({ token });
+    res.json({ token });
+  } catch (err) {
+    res.status(500).send("Login error ❌");
+  }
 });
 
 // ==========================
@@ -157,8 +166,17 @@ app.delete("/api/identity/:id", verifyToken, async (req, res) => {
 });
 
 // ==========================
-// START SERVER (ONLY ONCE)
+// ROOT ROUTE (IMPORTANT FOR RENDER)
 // ==========================
-app.listen(process.env.PORT || 5000, () => {
-  console.log("Server running on http://localhost:5000 🚀");
+app.get("/", (req, res) => {
+  res.send("VaultSecure Backend Running 🚀");
+});
+
+// ==========================
+// START SERVER
+// ==========================
+const PORT = process.env.PORT || 5000;
+
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT} 🚀`);
 });
